@@ -5,7 +5,7 @@ from typing import Dict
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Book, Member, MemberTier, Order, OrderStatus
+from app.models import Book, Member, MemberTier, Order, OrderItem, OrderStatus
 from app.schemas import OrderCreate
 from app.services.members import ensure_can_access_restricted, get_member
 
@@ -52,8 +52,34 @@ def create_order(db: Session, data: OrderCreate, now: datetime) -> Order:
         if book.restricted:
             ensure_can_access_restricted(member)
 
-    # TODO: reserve stock, calculate totals, and save the pending order.
-    raise NotImplementedError("create_order")
+    for item, book in zip(data.items, books):
+        if book.stock < item.quantity:
+            raise HTTPException(status_code=409, detail="Insufficient stock")
+
+    order_items = []
+    for item, book in zip(data.items, books):
+        book.stock -= item.quantity
+        order_items.append(
+            OrderItem(book_id=book.id, quantity=item.quantity, unit_price_cents=book.price_cents)
+        )
+
+    subtotal_cents = sum(item.line_total_cents for item in order_items)
+    discount_percent = calculate_discount_percent(member, sum(item.quantity for item in data.items))
+    discount_cents = subtotal_cents * discount_percent // 100
+    order = Order(
+        member_id=member.id,
+        status=OrderStatus.PENDING.value,
+        items=order_items,
+        subtotal_cents=subtotal_cents,
+        discount_percent=discount_percent,
+        discount_cents=discount_cents,
+        total_cents=subtotal_cents - discount_cents,
+        created_at=now,
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
 
 
 def get_order(db: Session, order_id: int) -> Order:
