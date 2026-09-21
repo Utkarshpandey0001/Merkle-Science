@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Book, Loan, MemberTier
@@ -68,6 +69,17 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
         raise HTTPException(status_code=404, detail="Book not found")
     if book.restricted:
         ensure_can_access_restricted(member)
+
+    active_loans = db.scalars(
+        select(Loan).where(Loan.member_id == member.id, Loan.returned_at.is_(None))
+    ).all()
+    if any(now > loan.due_at for loan in active_loans):
+        raise HTTPException(status_code=409, detail="Member has an overdue loan")
+    if any(loan.book_id == book.id for loan in active_loans):
+        raise HTTPException(status_code=409, detail="Member already borrowed this book")
+    loan_limit = TIER_LOAN_LIMIT[member.tier]
+    if loan_limit is not None and len(active_loans) >= loan_limit:
+        raise HTTPException(status_code=409, detail="Member has reached the loan limit")
 
     raise NotImplementedError("create_loan")
 
