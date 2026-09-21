@@ -81,7 +81,22 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
     if loan_limit is not None and len(active_loans) >= loan_limit:
         raise HTTPException(status_code=409, detail="Member has reached the loan limit")
 
-    raise NotImplementedError("create_loan")
+    if book.stock == 0:
+        raise HTTPException(status_code=409, detail="Book is out of stock")
+
+    loan = Loan(
+        member_id=member.id,
+        book_id=book.id,
+        borrowed_at=now,
+        due_at=now + LOAN_PERIOD,
+        returned_at=None,
+        late_fee_cents=0,
+    )
+    book.stock -= 1
+    db.add(loan)
+    db.commit()
+    db.refresh(loan)
+    return to_loan_out(loan, now)
 
 
 def get_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
