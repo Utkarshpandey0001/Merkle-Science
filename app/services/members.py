@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Member, MemberTier, Order, OrderStatus
+from app.models import Loan, Member, MemberTier, Order, OrderStatus
 from app.schemas import MemberCreate, MemberStats
 
 # Tiers from lowest to highest; a member's rank is their index in this list.
@@ -80,11 +80,13 @@ def get_member_stats(db: Session, member_id: int, now: datetime) -> MemberStats:
             Order.member_id == member_id, Order.status == OrderStatus.PAID.value
         )
     ).one()
+    loans = db.scalars(select(Loan).where(Loan.member_id == member_id)).all()
+    unreturned_loans = [loan for loan in loans if loan.returned_at is None]
     return MemberStats(
         member_id=member_id,
         orders_paid=orders_paid,
         total_spent_cents=total_spent_cents,
-        active_loans=0,
-        overdue_loans=0,
-        late_fees_cents=0,
+        active_loans=len(unreturned_loans),
+        overdue_loans=sum(now > loan.due_at for loan in unreturned_loans),
+        late_fees_cents=sum(loan.late_fee_cents for loan in loans if loan.returned_at is not None),
     )
