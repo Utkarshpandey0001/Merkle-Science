@@ -5,8 +5,9 @@ from typing import Dict, List, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Loan, MemberTier
+from app.models import Book, Loan, MemberTier
 from app.schemas import LoanCreate, LoanOut, LoanStatus
+from app.services.members import ensure_can_access_restricted, get_member
 
 # Maximum concurrent unreturned loans per tier (None = unlimited).
 TIER_LOAN_LIMIT: Dict[str, Optional[int]] = {
@@ -61,6 +62,13 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
     On success: borrowed_at = now, due_at = now + 14 days, returned_at None,
     late_fee_cents 0, and stock is decremented by one.
     """
+    member = get_member(db, data.member_id)
+    book = db.get(Book, data.book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    if book.restricted:
+        ensure_can_access_restricted(member)
+
     raise NotImplementedError("create_loan")
 
 
