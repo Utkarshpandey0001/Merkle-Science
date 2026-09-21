@@ -5,8 +5,9 @@ from typing import Dict
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Member, MemberTier, Order, OrderStatus
+from app.models import Book, Member, MemberTier, Order, OrderStatus
 from app.schemas import OrderCreate
+from app.services.members import ensure_can_access_restricted, get_member
 
 # Percentage discount granted by each membership tier.
 TIER_DISCOUNT_PERCENT: Dict[str, int] = {
@@ -39,13 +40,19 @@ def create_order(db: Session, data: OrderCreate, now: datetime) -> Order:
     Then stock is decremented for every item and prices are snapshotted.
     Pricing: discount_cents = subtotal * percent // 100; total = subtotal - discount.
     """
-    # TODO:
-    # 1. Load the member (404) and every book (404).
-    # 2. If any book is restricted, check the member's tier (403).
-    # 3. Check stock for every item before changing anything (409).
-    # 4. Decrement stock and build OrderItems with the current price as unit_price_cents.
-    # 5. Compute subtotal, discount_percent (calculate_discount_percent), discount_cents, total.
-    # 6. Save the pending Order with created_at = now and return it.
+    member = get_member(db, data.member_id)
+    books = []
+    for item in data.items:
+        book = db.get(Book, item.book_id)
+        if book is None:
+            raise HTTPException(status_code=404, detail="Book not found")
+        books.append(book)
+
+    for book in books:
+        if book.restricted:
+            ensure_can_access_restricted(member)
+
+    # TODO: reserve stock, calculate totals, and save the pending order.
     raise NotImplementedError("create_order")
 
 
