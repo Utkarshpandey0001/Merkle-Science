@@ -47,7 +47,11 @@ def to_loan_out(loan: Loan, now: datetime) -> LoanOut:
 
 def calculate_late_fee(due_at: datetime, returned_at: datetime, price_cents: int) -> int:
     """25 cents per started day late (any partial day counts), capped at the book's price; 0 if not late."""
-    raise NotImplementedError("calculate_late_fee")
+    if returned_at <= due_at:
+        return 0
+    elapsed = returned_at - due_at
+    days_late = elapsed.days + (1 if elapsed.seconds or elapsed.microseconds else 0)
+    return min(days_late * LATE_FEE_PER_DAY_CENTS, price_cents)
 
 
 def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
