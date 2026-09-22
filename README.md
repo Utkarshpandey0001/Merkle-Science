@@ -135,3 +135,20 @@ with your virtual environment activated.)
 Each test gets a fresh in-memory database and a **frozen clock** (`clock.advance(days=15)`),
 so tests are fast and deterministic. Endpoints that haven't been built yet return
 `501 Not implemented`.
+
+## Public deployment with Render and Neon
+
+The FastAPI app serves both the API and the frontend, so deploy it as one Render web
+service. The repository includes a `render.yaml` Blueprint for a free Python web service.
+
+1. Create a Neon Postgres database and copy its **direct** connection string with
+   `sslmode=require`.
+2. In Render, create a new Blueprint from this GitHub repository. Render reads
+   `render.yaml` and prompts for `SANCTUM_DATABASE_URL`. Paste the Neon connection
+   string there, never into a file committed to Git.
+3. After deployment, open the service URL at `/health`, `/docs`, and `/`. The database
+   tables and demo books and members are created on the first app startup.
+
+The default local database remains SQLite. Run `uv run pytest` locally without a Neon
+connection. The optional `postgres` dependency group installs the driver only for
+deployment. Render's build command selects that group.
