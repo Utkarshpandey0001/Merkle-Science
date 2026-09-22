@@ -15,8 +15,12 @@ restricted books.
   remain thin.
 - Preserved order prices when an order is placed. Order creation checks every item
   before changing stock, then saves the order and stock changes in one transaction.
+- Added the optional last-copy safeguard: order creation checks and decrements stock
+  in a conditional database update, and rolls back all reservations if any item runs out.
+- Added paginated `GET /members` and regression tests for stale stock reads,
+  multi-book rollback, and member list page boundaries.
 - Used the injected clock for order, member, and loan timestamps and overdue checks.
-- The complete local test suite passes with the default in-memory SQLite test setup.
+- All 212 local tests pass with the default SQLite test setup.
 
 ## Deployment and trade-offs
 
@@ -31,10 +35,9 @@ existing tables. My existing local `sanctum.db` predates the new loan columns, a
 left that file untouched. Loan actions against that old local file need a schema
 migration or a fresh database; the tests use fresh databases, and Neon starts fresh.
 
-The optional concurrent-order safeguard for the last book copy and optional
-paginated `GET /members` endpoint were not implemented. If extending the app, I
-would add migrations and database-level concurrency control before relying on it
-for production stock management.
+If extending the app, I would add schema migrations and apply the same database-level
+stock protection to other stock-changing operations, such as loans, returns, and
+order cancellations, before relying on it for production inventory management.
 
 ## Specification questions
 
