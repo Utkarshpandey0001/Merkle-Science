@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Dict
 
 from fastapi import HTTPException
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.models import Book, Member, MemberTier, Order, OrderItem, OrderStatus
@@ -56,12 +57,24 @@ def create_order(db: Session, data: OrderCreate, now: datetime) -> Order:
         if book.stock < item.quantity:
             raise HTTPException(status_code=409, detail="Insufficient stock")
 
-    order_items = []
-    for item, book in zip(data.items, books):
-        book.stock -= item.quantity
-        order_items.append(
-            OrderItem(book_id=book.id, quantity=item.quantity, unit_price_cents=book.price_cents)
+    # A book's stock may have changed since it was read above. Each update checks
+    # the current database value while reserving stock. Keep a consistent lock
+    # order across multi-book orders, and roll back earlier updates on failure.
+    for item in sorted(data.items, key=lambda item: item.book_id):
+        result = db.execute(
+            update(Book)
+            .where(Book.id == item.book_id, Book.stock >= item.quantity)
+            .values(stock=Book.stock - item.quantity)
+            .execution_options(synchronize_session=False)
         )
+        if result.rowcount != 1:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Insufficient stock")
+
+    order_items = [
+        OrderItem(book_id=book.id, quantity=item.quantity, unit_price_cents=book.price_cents)
+        for item, book in zip(data.items, books)
+    ]
 
     subtotal_cents = sum(item.line_total_cents for item in order_items)
     discount_percent = calculate_discount_percent(member, sum(item.quantity for item in data.items))
