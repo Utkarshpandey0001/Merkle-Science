@@ -7,9 +7,10 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Book, Loan, Member
-from app.schemas import LoanCreate
+from app.models import Book, Loan, Member, Order
+from app.schemas import LoanCreate, OrderCreate
 from app.services.loans import create_loan, return_loan
+from app.services.orders import cancel_order, create_order, pay_order
 
 NOW = datetime(2026, 1, 1, 12, 0, 0)
 
@@ -91,3 +92,81 @@ def test_stale_return_request_restores_stock_only_once(make_session):
     with make_session() as check:
         assert check.get(Book, book_id).stock == 1
         assert check.get(Loan, loan_id).returned_at == NOW
+
+
+def test_stale_cancellation_restores_order_stock_only_once(make_session):
+    with make_session() as setup:
+        member = Member(
+            name="Member", email="member@example.com", tier="apprentice", created_at=NOW
+        )
+        book = Book(
+            title="Ordered Book",
+            author="Author",
+            isbn="9780192834010",
+            price_cents=1000,
+            stock=5,
+            restricted=False,
+        )
+        setup.add_all([member, book])
+        setup.commit()
+        order = create_order(
+            setup,
+            OrderCreate.model_validate(
+                {"member_id": member.id, "items": [{"book_id": book.id, "quantity": 3}]}
+            ),
+            NOW,
+        )
+        order_id, book_id = order.id, book.id
+
+    with make_session() as stale, make_session() as first:
+        cached_order = stale.get(Order, order_id)
+        assert cached_order.status == "pending"
+        assert len(cached_order.items) == 1
+        assert stale.get(Book, book_id).stock == 2
+        assert cancel_order(first, order_id).status == "cancelled"
+
+        with pytest.raises(HTTPException) as error:
+            cancel_order(stale, order_id)
+        assert error.value.status_code == 409
+
+    with make_session() as check:
+        assert check.get(Book, book_id).stock == 5
+        assert check.get(Order, order_id).status == "cancelled"
+
+
+def test_stale_payment_cannot_overwrite_a_cancellation(make_session):
+    with make_session() as setup:
+        member = Member(
+            name="Member", email="member@example.com", tier="apprentice", created_at=NOW
+        )
+        book = Book(
+            title="Ordered Book",
+            author="Author",
+            isbn="9780192834010",
+            price_cents=1000,
+            stock=2,
+            restricted=False,
+        )
+        setup.add_all([member, book])
+        setup.commit()
+        order = create_order(
+            setup,
+            OrderCreate.model_validate(
+                {"member_id": member.id, "items": [{"book_id": book.id, "quantity": 1}]}
+            ),
+            NOW,
+        )
+        order_id, book_id = order.id, book.id
+
+    with make_session() as stale_payment, make_session() as cancellation:
+        cached_order = stale_payment.get(Order, order_id)
+        assert cached_order.status == "pending"
+        assert cancel_order(cancellation, order_id).status == "cancelled"
+
+        with pytest.raises(HTTPException) as error:
+            pay_order(stale_payment, order_id)
+        assert error.value.status_code == 409
+
+    with make_session() as check:
+        assert check.get(Book, book_id).stock == 2
+        assert check.get(Order, order_id).status == "cancelled"

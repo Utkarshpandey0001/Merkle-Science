@@ -108,7 +108,16 @@ def pay_order(db: Session, order_id: int) -> Order:
     order = get_order(db, order_id)
     if order.status != OrderStatus.PENDING.value:
         raise HTTPException(status_code=409, detail=f"Cannot pay an order that is {order.status}")
-    order.status = OrderStatus.PAID.value
+
+    transition = db.execute(
+        update(Order)
+        .where(Order.id == order_id, Order.status == OrderStatus.PENDING.value)
+        .values(status=OrderStatus.PAID.value)
+        .execution_options(synchronize_session=False)
+    )
+    if transition.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Cannot pay an order that is no longer pending")
     db.commit()
     db.refresh(order)
     return order
@@ -119,9 +128,25 @@ def cancel_order(db: Session, order_id: int) -> Order:
     order = get_order(db, order_id)
     if order.status != OrderStatus.PENDING.value:
         raise HTTPException(status_code=409, detail=f"Cannot cancel an order that is {order.status}")
-    for item in order.items:
-        item.book.stock += item.quantity
-    order.status = OrderStatus.CANCELLED.value
+
+    items = list(order.items)
+    transition = db.execute(
+        update(Order)
+        .where(Order.id == order_id, Order.status == OrderStatus.PENDING.value)
+        .values(status=OrderStatus.CANCELLED.value)
+        .execution_options(synchronize_session=False)
+    )
+    if transition.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Cannot cancel an order that is no longer pending")
+
+    for item in sorted(items, key=lambda item: item.book_id):
+        db.execute(
+            update(Book)
+            .where(Book.id == item.book_id)
+            .values(stock=Book.stock + item.quantity)
+            .execution_options(synchronize_session=False)
+        )
     db.commit()
     db.refresh(order)
     return order
