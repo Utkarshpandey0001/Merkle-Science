@@ -132,9 +132,23 @@ def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
     if loan.returned_at is not None:
         raise HTTPException(status_code=409, detail="Loan has already been returned")
 
-    loan.returned_at = now
-    loan.late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)
-    loan.book.stock += 1
+    late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)
+    transition = db.execute(
+        update(Loan)
+        .where(Loan.id == loan_id, Loan.returned_at.is_(None))
+        .values(returned_at=now, late_fee_cents=late_fee_cents)
+        .execution_options(synchronize_session=False)
+    )
+    if transition.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Loan has already been returned")
+
+    db.execute(
+        update(Book)
+        .where(Book.id == loan.book_id)
+        .values(stock=Book.stock + 1)
+        .execution_options(synchronize_session=False)
+    )
     db.commit()
     db.refresh(loan)
     return to_loan_out(loan, now)

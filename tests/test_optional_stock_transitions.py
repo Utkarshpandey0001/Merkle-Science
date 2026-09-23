@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 from app.models import Book, Loan, Member
 from app.schemas import LoanCreate
-from app.services.loans import create_loan
+from app.services.loans import create_loan, return_loan
 
 NOW = datetime(2026, 1, 1, 12, 0, 0)
 
@@ -58,3 +58,36 @@ def test_stale_loan_request_cannot_borrow_the_last_copy(make_session):
     with make_session() as check:
         assert check.get(Book, book_id).stock == 0
         assert check.scalar(select(func.count(Loan.id))) == 1
+
+
+def test_stale_return_request_restores_stock_only_once(make_session):
+    with make_session() as setup:
+        member = Member(
+            name="Member", email="member@example.com", tier="apprentice", created_at=NOW
+        )
+        book = Book(
+            title="Borrowed Book",
+            author="Author",
+            isbn="9780192834010",
+            price_cents=1000,
+            stock=1,
+            restricted=False,
+        )
+        setup.add_all([member, book])
+        setup.commit()
+        loan = create_loan(setup, LoanCreate(member_id=member.id, book_id=book.id), NOW)
+        loan_id, book_id = loan.id, book.id
+
+    with make_session() as stale, make_session() as first:
+        cached_loan = stale.get(Loan, loan_id)
+        assert cached_loan.returned_at is None
+        assert stale.get(Book, book_id).stock == 0
+        assert return_loan(first, loan_id, NOW).status == "returned"
+
+        with pytest.raises(HTTPException) as error:
+            return_loan(stale, loan_id, NOW)
+        assert error.value.status_code == 409
+
+    with make_session() as check:
+        assert check.get(Book, book_id).stock == 1
+        assert check.get(Loan, loan_id).returned_at == NOW
