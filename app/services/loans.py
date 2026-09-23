@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models import Book, Loan, MemberTier
@@ -88,6 +88,16 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
     if book.stock == 0:
         raise HTTPException(status_code=409, detail="Book is out of stock")
 
+    reservation = db.execute(
+        update(Book)
+        .where(Book.id == book.id, Book.stock >= 1)
+        .values(stock=Book.stock - 1)
+        .execution_options(synchronize_session=False)
+    )
+    if reservation.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Book is out of stock")
+
     loan = Loan(
         member_id=member.id,
         book_id=book.id,
@@ -96,7 +106,6 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
         returned_at=None,
         late_fee_cents=0,
     )
-    book.stock -= 1
     db.add(loan)
     db.commit()
     db.refresh(loan)
