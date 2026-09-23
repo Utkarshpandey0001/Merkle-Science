@@ -22,6 +22,7 @@ restricted books.
   overwrite a completed order status change.
 - Added paginated `GET /members` and regression tests for stale stock reads,
   multi-book rollback, and member list page boundaries.
+- Updated the README to describe the completed implementation and current test coverage.
 - Used the injected clock for order, member, and loan timestamps and overdue checks.
 - All 216 local tests pass with the default SQLite test setup.
 

@@ -1,9 +1,9 @@
 # Sanctum Sanctorum — Members' Bookstore
 
 A small backend for a members-only clubhouse bookstore. Members can **buy** books and
-**borrow** them from the club library. The codebase is only partly finished. Your job is
-described in [ASSIGNMENT.md](ASSIGNMENT.md), and how the exercise runs — timeline, grading,
-Git, deployment and AI usage — is in [INSTRUCTIONS.md](INSTRUCTIONS.md).
+**borrow** them from the club library. This repository contains the completed assignment.
+The requirements are described in [ASSIGNMENT.md](ASSIGNMENT.md), and how the exercise runs —
+timeline, grading, Git, deployment and AI usage — is in [INSTRUCTIONS.md](INSTRUCTIONS.md).
 
 ## Quick start
 
@@ -133,8 +133,8 @@ uv run pytest -k late_fee -x           # by name, stop at first failure
 with your virtual environment activated.)
 
 Each test gets a fresh in-memory database and a **frozen clock** (`clock.advance(days=15)`),
-so tests are fast and deterministic. Endpoints that haven't been built yet return
-`501 Not implemented`.
+so tests are fast and deterministic. The suite covers books, members, orders, loans,
+reports, pagination, and concurrent stock transitions.
 
 ## Public deployment with Render and Neon
 
